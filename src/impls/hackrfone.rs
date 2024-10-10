@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    os::fd::{FromRawFd, OwnedFd},
+    sync::{Arc, Mutex},
+};
 
 use num_complex::Complex32;
 use seify_hackrfone::Config;
@@ -32,7 +35,7 @@ impl HackRfOne {
         let args: Args = args.try_into().or(Err(Error::ValueError))?;
 
         if let Ok(fd) = args.get::<i32>("fd") {
-            log::debug!("Opening hackrf, fd={fd}");
+            log::debug!("seify_hackrfone wrapping device fd={fd}");
             let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 
             return Ok(Self {
