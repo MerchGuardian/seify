@@ -301,6 +301,25 @@ impl Device<GenericDevice> {
                 }
             }
         }
+        #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::HackRf)) {
+                match crate::impls::HackRfOne::open(&args) {
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if driver.is_some() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+
         Err(Error::NotFound)
     }
 }
