@@ -9,10 +9,11 @@ license = "Apache-2.0"
 repository = "https://github.com/FutureSDR/seify"
 
 [features]
-default = ["soapy"]
+# default = ["soapy"]
+default = ["bladerf"]
 aaronia = ["dep:aaronia-rtsa"]
 aaronia_http = ["dep:ureq"]
-bladerf = ["dep:seify-bladerf"]
+bladerf = ["dep:bladerf"]
 rtlsdr = ["dep:seify-rtlsdr"]
 soapy = ["dep:soapysdr"]
 
@@ -33,7 +34,7 @@ thiserror = "1.0"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 once_cell = "1.19"
 seify-rtlsdr = { path = "crates/rtl-sdr-rs", version = "0.0.3", optional = true }
-seify-bladerf = { path = "crates/bladerf-rs", optional = true }
+bladerf = { path = "crates/bladerf", optional = true }
 soapysdr = { version = "0.4", optional = true }
 ureq = { version = "2.9", features = ["json"], optional = true }
 
