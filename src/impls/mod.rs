@@ -23,3 +23,8 @@ pub use soapy::Soapy;
 pub mod hackrfone;
 #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
 pub use hackrfone::HackRfOne;
+
+#[cfg(all(feature = "bladerf", not(target_arch = "wasm32")))]
+pub mod bladerf;
+#[cfg(all(feature = "bladerf", not(target_arch = "wasm32")))]
+pub use bladerf::BladeRf;
