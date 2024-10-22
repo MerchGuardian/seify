@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use bladerf::{Channel, Format, GainMode};
+use bladerf::{Channel, Format, GainMode, Loopback};
 use num_complex::{Complex, Complex32};
 
 use crate::{Args, DeviceTrait, Direction, Error, Range, RangeItem};
@@ -50,6 +50,8 @@ impl BladeRf {
                     None
                 } else {
                     args.set("driver", "bladerf");
+                    args.set("manufacturer", d.manufacturer());
+                    args.set("product", d.product());
                     Some(args)
                 }
             })
@@ -64,7 +66,7 @@ impl BladeRf {
         }
 
         let bus: Option<u8> = args.get("bus").ok();
-        let address: Option<u8> = args.get("bus").ok();
+        let address: Option<u8> = args.get("address").ok();
         let dev = match (bus, address) {
             (Some(bus), Some(address)) => Self::open_bus(bus, address)?,
             _ => bladerf::BladeRF::open_first()?,
@@ -124,6 +126,7 @@ impl BladeRf {
             }
         }
 
+        log::warn!("Failed to find bladerf bus: {bus:?}, address: {address:?}");
         return Err(Error::NotFound);
     }
 
@@ -181,15 +184,6 @@ impl RxStreamer {
     }
 }
 
-pub fn abc(dev: BladeRf) {
-    let mut d = dev.rx_streamer(&[0], Args::new()).unwrap();
-    let mut inner = [Complex32::ZERO; TRANSFER_NUM_SAMPLES];
-    let buffers = &mut [inner.as_mut_slice()];
-    use crate::RxStreamer;
-    d.read(buffers, 1_000_000).unwrap();
-    println!("{buffers:?}");
-}
-
 impl crate::RxStreamer for RxStreamer {
     fn mtu(&self) -> Result<usize, Error> {
         Ok(TRANSFER_NUM_SAMPLES)
@@ -197,14 +191,30 @@ impl crate::RxStreamer for RxStreamer {
 
     fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         // TODO: sleep precisely for `time_ns`
-        self.inner.sync_config(
-            self.params.channel,
-            self.params.format,
-            self.params.num_buffers,
-            self.params.buffer_size,
-            self.params.num_transfers,
-            self.params.stream_timeout,
-        )?;
+        let _ = self
+            .inner
+            .set_rx_mux(bladerf::RxMux::Baseband)
+            .map_err(|e| println!("failed to set rx mux to baseband: {e:?}"));
+        self.inner.set_loopback(Loopback::None)?;
+
+        log::info!("Writing config: {:?}", &self.params);
+
+        self.inner
+            .sync_config(
+                self.params.channel,
+                self.params.format,
+                self.params.num_buffers,
+                self.params.buffer_size,
+                self.params.num_transfers,
+                self.params.stream_timeout,
+            )
+            .unwrap();
+
+        self.inner.set_bandwidth(self.params.channel, 250_000)?;
+        self.inner
+            .set_gain_mode(self.params.channel, GainMode::Default)?;
+
+        self.inner.enable_module(self.params.channel).unwrap();
 
         Ok(())
     }
@@ -212,7 +222,9 @@ impl crate::RxStreamer for RxStreamer {
     fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         // TODO: sleep precisely for `time_ns`
 
-        todo!();
+        self.inner.disable_module(self.params.channel)?;
+        log::info!("Shutting down channel: {:?}", self.params.channel);
+
         Ok(())
     }
 
@@ -227,15 +239,14 @@ impl crate::RxStreamer for RxStreamer {
             return Ok(0);
         }
         assert_eq!(self.params.format, Format::Sc16Q11);
-        // TODO: possible to relax this in the future, need to know implications
-        assert_eq!(buffers[0].len(), TRANSFER_NUM_SAMPLES);
 
         if self.buf.len() < buffers[0].len() {
             self.buf.resize(buffers[0].len(), Complex::ZERO);
         }
 
         self.inner
-            .sync_rx(&mut self.buf, None, self.params.stream_timeout)?;
+            .sync_rx(&mut self.buf, None, self.params.stream_timeout)
+            .unwrap();
 
         // TODO: make sure assembly is good
         for i in 0..buffers[0].len() {
@@ -392,7 +403,7 @@ impl crate::DeviceTrait for BladeRf {
         } else {
             Ok(RxStreamer::new(
                 Arc::clone(&self.inner),
-                StreamParams::new(Channel::Tx1, Format::Sc16Q11),
+                StreamParams::new(Channel::Rx1, Format::Sc16Q11),
             ))
         }
     }
@@ -484,6 +495,8 @@ impl crate::DeviceTrait for BladeRf {
     ) -> Result<(), Error> {
         let r = self.gain_range(direction, channel)?;
         let channel = Self::to_channel(direction, channel)?;
+
+        log::debug!("Set gain {channel:?} {gain}");
         if r.contains(gain) && name == "full" {
             Ok(self.inner.set_gain_stage(channel, name, gain as i32)?)
         } else {
@@ -582,8 +595,11 @@ impl crate::DeviceTrait for BladeRf {
         name: &str,
         frequency: f64,
     ) -> Result<(), Error> {
-        log::debug!("");
         let channel = Self::to_channel(direction, channel)?;
+        log::debug!(
+            "Set frequency {channel:?} {name} = {}MHz",
+            frequency / 1_000_000.0
+        );
         if name == "TUNER" {
             Ok(self.inner.set_frequency(channel, frequency as u64)?)
         } else {
@@ -607,7 +623,10 @@ impl crate::DeviceTrait for BladeRf {
             .contains(rate)
         {
             let channel = Self::to_channel(direction, channel)?;
+            log::debug!("Set sample rate {channel:?} {}MHz", rate / 1_000_000.0);
             let _actual = self.inner.set_sample_rate(channel, rate as u32)?;
+
+            log::debug!("Sample rate actually {}MHz", _actual as f64 / 1_000_000.0);
             Ok(())
         } else {
             Err(Error::ValueError)
