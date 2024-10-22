@@ -1,9 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::{path::Path, sync::Arc, time::Duration};
 
 use bladerf::{Channel, Format, GainMode};
-use num_complex::Complex;
+use num_complex::{Complex, Complex32};
 
-use crate::{Args, Direction, Error, Range, RangeItem};
+use crate::{Args, DeviceTrait, Direction, Error, Range, RangeItem};
 
 pub struct BladeRf {
     inner: Arc<BladeRfInner>,
@@ -45,6 +45,7 @@ impl BladeRf {
                     log::warn!("Unable to get busnum or address for device: {d:?}");
                     None
                 } else {
+                    args.set("driver", "bladerf");
                     Some(args)
                 }
             })
@@ -66,7 +67,26 @@ impl BladeRf {
         for info in bladerf::get_device_list()? {
             if info.usb_bus() == bus && info.usb_addr() == address {
                 log::info!("Opening bladerf device, bus: {bus:?}, address: {address:?}");
-                return Ok(info.open()?.into());
+                let dev: Self = info.open()?.into();
+
+                let fpga_bitstream_path =
+                    if let Ok(path) = args.get::<String>("fpga_bitstream_path") {
+                        Some(path)
+                    } else if let Ok(path) = std::env::var(bladerf::FPGA_BITSTREAM_VAR_NAME) {
+                        if Path::new(&path).exists() {
+                            Some(path)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                if let Some(path) = fpga_bitstream_path {
+                    log::info!("Loading fpga bitstream from path: {path}");
+                    dev.inner.load_fpga(path)?;
+                }
+
+                return Ok(dev);
             }
         }
 
@@ -125,6 +145,15 @@ impl RxStreamer {
             buf: vec![],
         }
     }
+}
+
+pub fn abc(dev: BladeRf) {
+    let mut d = dev.rx_streamer(&[0], Args::new()).unwrap();
+    let mut inner = [Complex32::ZERO; TRANSFER_NUM_SAMPLES];
+    let buffers = &mut [inner.as_mut_slice()];
+    use crate::RxStreamer;
+    d.read(buffers, 1_000_000).unwrap();
+    println!("{buffers:?}");
 }
 
 impl crate::RxStreamer for RxStreamer {
@@ -194,7 +223,11 @@ pub struct TxStreamer {
 
 impl TxStreamer {
     fn new(inner: Arc<BladeRfInner>, params: StreamParams) -> Self {
-        Self { inner, params, buf: vec![] }
+        Self {
+            inner,
+            params,
+            buf: vec![],
+        }
     }
 }
 
@@ -250,7 +283,8 @@ impl crate::TxStreamer for TxStreamer {
             self.buf[i].re = (buffers[0][i].re * 2047.0) as i16;
             self.buf[i].im = (buffers[0][i].im * 2047.0) as i16;
         }
-        self.inner.sync_tx(&self.buf, None, self.params.stream_timeout)?;
+        self.inner
+            .sync_tx(&self.buf, None, self.params.stream_timeout)?;
 
         Ok(buffers[0].len())
     }
@@ -288,7 +322,7 @@ impl crate::DeviceTrait for BladeRf {
     }
 
     fn driver(&self) -> crate::Driver {
-        crate::Driver::Bladerf
+        crate::Driver::BladeRf
     }
 
     fn id(&self) -> Result<String, Error> {
@@ -302,6 +336,8 @@ impl crate::DeviceTrait for BladeRf {
             self.inner.firmware_version()?.to_string(),
         );
         args.set("fpga version", self.inner.fpga_version()?.to_string());
+        args.set("serial", self.inner.get_serial()?);
+        args.set("backend", format!("{:?}", self.inner.info()?.backend()?));
         Ok(args)
     }
 
@@ -394,15 +430,15 @@ impl crate::DeviceTrait for BladeRf {
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        self.set_gain_element(direction, channel, "IF", gain)
+        self.set_gain_element(direction, channel, "full", gain)
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        self.gain_element(direction, channel, "IF")
+        self.gain_element(direction, channel, "full")
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        self.gain_element_range(direction, channel, "IF")
+        self.gain_element_range(direction, channel, "full")
     }
 
     fn set_gain_element(
@@ -414,7 +450,7 @@ impl crate::DeviceTrait for BladeRf {
     ) -> Result<(), Error> {
         let r = self.gain_range(direction, channel)?;
         let channel = Self::to_channel(direction, channel)?;
-        if r.contains(gain) && name == "IF" {
+        if r.contains(gain) && name == "full" {
             Ok(self.inner.set_gain_stage(channel, name, gain as i32)?)
         } else {
             log::warn!("Gain out of range");
@@ -443,7 +479,7 @@ impl crate::DeviceTrait for BladeRf {
         name: &str,
     ) -> Result<Range, Error> {
         let channel = Self::to_channel(direction, channel)?;
-        Ok(self.inner.get_gain_stage_range(channel, name)?.into())
+        Ok(self.inner.get_gain_stage_range(channel, name).unwrap().into())
     }
 
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {

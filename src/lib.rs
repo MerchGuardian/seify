@@ -76,7 +76,7 @@ impl From<ureq::Error> for Error {
 pub enum Driver {
     Aaronia,
     AaroniaHttp,
-    Bladerf,
+    BladeRf,
     HackRf,
     RtlSdr,
     Soapy,
@@ -101,6 +101,9 @@ impl FromStr for Driver {
         }
         if s == "hackrf" || s == "hackrfone" {
             return Ok(Driver::HackRf);
+        }
+        if s == "bladerf" {
+            return Ok(Driver::BladeRf);
         }
         Err(Error::ValueError)
     }
@@ -205,7 +208,7 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     }
     #[cfg(all(feature = "bladerf", not(target_arch = "wasm32")))]
     {
-        if driver.is_none() || matches!(driver, Some(Driver::Bladerf)) {
+        if driver.is_none() || matches!(driver, Some(Driver::BladeRf)) {
             devs.append(&mut impls::BladeRf::probe(&args)?)
         }
     }

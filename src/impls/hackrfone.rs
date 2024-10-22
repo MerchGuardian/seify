@@ -18,6 +18,7 @@ impl HackRfOne {
         /*
         for (bus_number, address) in seify_hackrfone::HackRf::scan()? {
             log::debug!("probing {bus_number}:{address}");
+            // TODO: use typed api, dont parse
             devs.push(
                 format!(
                     "driver=hackrfone, bus_number={}, address={}",
