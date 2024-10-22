@@ -1,4 +1,8 @@
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{
+    path::Path,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use bladerf::{Channel, Format, GainMode};
 use num_complex::{Complex, Complex32};
@@ -61,32 +65,62 @@ impl BladeRf {
 
         let bus: Option<u8> = args.get("bus").ok();
         let address: Option<u8> = args.get("bus").ok();
-        if bus.is_none() && address.is_none() {
-            return Ok(bladerf::BladeRF::open_first()?.into());
-        }
-        for info in bladerf::get_device_list()? {
-            if info.usb_bus() == bus && info.usb_addr() == address {
-                log::info!("Opening bladerf device, bus: {bus:?}, address: {address:?}");
-                let dev: Self = info.open()?.into();
+        let dev = match (bus, address) {
+            (Some(bus), Some(address)) => Self::open_bus(bus, address)?,
+            _ => bladerf::BladeRF::open_first()?,
+        };
+        let serial = dev.get_serial()?;
 
-                let fpga_bitstream_path =
-                    if let Ok(path) = args.get::<String>("fpga_bitstream_path") {
-                        Some(path)
-                    } else if let Ok(path) = std::env::var(bladerf::FPGA_BITSTREAM_VAR_NAME) {
-                        if Path::new(&path).exists() {
-                            Some(path)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-                if let Some(path) = fpga_bitstream_path {
-                    log::info!("Loading fpga bitstream from path: {path}");
-                    dev.inner.load_fpga(path)?;
+        // FIXME: work around `Calibration TIMEOUT (0x16, 0x80)` when re-opening already connected
+        // device by resetting it
+        log::debug!("Resetting device...");
+        let _ = dev
+            .device_reset()
+            .map_err(|e| println!("Failed to reset device: {e:?}"));
+
+        let start = Instant::now();
+        let dev = 'outer: loop {
+            for info in bladerf::get_device_list().unwrap_or_default() {
+                println!("Found: {:?}", info.serial());
+                if info.serial() == serial {
+                    if let Ok(dev) = info.open() {
+                        break 'outer dev;
+                    }
                 }
+            }
+            if start.elapsed().as_secs() > 2 {
+                log::error!("Failed to re-discover device `{serial}` after two seconds");
+                return Err(Error::NotFound);
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        };
 
-                return Ok(dev);
+        let fpga_bitstream_path = if let Ok(path) = args.get::<String>("fpga_bitstream_path") {
+            Some(path)
+        } else if let Ok(path) = std::env::var(bladerf::FPGA_BITSTREAM_VAR_NAME) {
+            if Path::new(&path).exists() {
+                Some(path)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(path) = fpga_bitstream_path {
+            log::info!("Loading fpga bitstream from path: {path}");
+            dev.load_fpga(path)?;
+        }
+
+        return Ok(dev.into());
+    }
+
+    fn open_bus(bus: u8, address: u8) -> Result<bladerf::BladeRF, Error> {
+        for info in bladerf::get_device_list()? {
+            if info.usb_bus() == Some(bus) && info.usb_addr() == Some(address) {
+                log::info!("Opening bladerf device, bus: {bus:?}, address: {address:?}");
+
+                return Ok(info.open()?);
             }
         }
 
@@ -479,7 +513,11 @@ impl crate::DeviceTrait for BladeRf {
         name: &str,
     ) -> Result<Range, Error> {
         let channel = Self::to_channel(direction, channel)?;
-        Ok(self.inner.get_gain_stage_range(channel, name).unwrap().into())
+        Ok(self
+            .inner
+            .get_gain_stage_range(channel, name)
+            .unwrap()
+            .into())
     }
 
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
@@ -544,6 +582,7 @@ impl crate::DeviceTrait for BladeRf {
         name: &str,
         frequency: f64,
     ) -> Result<(), Error> {
+        log::debug!("");
         let channel = Self::to_channel(direction, channel)?;
         if name == "TUNER" {
             Ok(self.inner.set_frequency(channel, frequency as u64)?)

@@ -59,7 +59,7 @@ pub enum Error {
     #[error("Hackrf ({0})")]
     HackRfOne(#[from] seify_hackrfone::Error),
     #[cfg(all(feature = "bladerf", not(target_arch = "wasm32")))]
-    #[error("Hackrf ({0})")]
+    #[error("Bladerf ({0})")]
     BladeRf(#[from] bladerf::Error),
 }
 
