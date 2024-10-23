@@ -5,9 +5,9 @@ use std::{
 };
 
 use bladerf::{Channel, Format, GainMode, Loopback};
-use num_complex::{Complex, Complex32};
+use num_complex::Complex;
 
-use crate::{Args, DeviceTrait, Direction, Error, Range, RangeItem};
+use crate::{Args, Direction, Error, Range, RangeItem};
 
 pub struct BladeRf {
     inner: Arc<BladeRfInner>,
@@ -171,15 +171,20 @@ impl StreamParams {
 pub struct RxStreamer {
     inner: Arc<BladeRfInner>,
     params: StreamParams,
-    buf: Vec<num_complex::Complex<i16>>,
+    buf: Box<[num_complex::Complex<i16>]>,
+    /// The index of the first unread sample in `buf`.
+    /// Set to `buf.len()` if no samples are buffered.
+    buffered_idx: usize,
 }
 
 impl RxStreamer {
     fn new(inner: Arc<BladeRfInner>, params: StreamParams) -> Self {
+        let buf: Box<[_]> = vec![num_complex::Complex::ZERO; TRANSFER_NUM_SAMPLES].into();
         Self {
             inner,
             params,
-            buf: vec![],
+            buffered_idx: buf.len(),
+            buf,
         }
     }
 }
@@ -231,32 +236,40 @@ impl crate::RxStreamer for RxStreamer {
     fn read(
         &mut self,
         buffers: &mut [&mut [num_complex::Complex32]],
-        _timeout_us: i64,
+        timeout_us: i64,
     ) -> Result<usize, Error> {
         assert_eq!(buffers.len(), 1);
+        let dst = &mut buffers[0];
 
-        if buffers[0].is_empty() {
+        if dst.is_empty() {
             return Ok(0);
         }
         assert_eq!(self.params.format, Format::Sc16Q11);
 
-        if self.buf.len() < buffers[0].len() {
-            self.buf.resize(buffers[0].len(), Complex::ZERO);
+        let buffered = &self.buf[self.buffered_idx..];
+        if !buffered.is_empty() {
+            let len = std::cmp::min(buffered.len(), dst.len());
+
+            // TODO: make sure assembly is good
+            for i in 0..len {
+                dst[i] = Complex::new(
+                    buffered[i].re as f32 / 2047.0,
+                    buffered[i].im as f32 / 2047.0,
+                );
+            }
+            self.buffered_idx += len;
+            assert!(self.buffered_idx <= self.buf.len());
+
+            Ok(len)
+        } else {
+            self.inner
+                .sync_rx(&mut self.buf, None, self.params.stream_timeout)
+                .unwrap();
+
+            self.buffered_idx = 0;
+            // Tail recurse to read samples
+            self.read(buffers, timeout_us)
         }
-
-        self.inner
-            .sync_rx(&mut self.buf, None, self.params.stream_timeout)
-            .unwrap();
-
-        // TODO: make sure assembly is good
-        for i in 0..buffers[0].len() {
-            buffers[0][i] = Complex::new(
-                self.buf[i].re as f32 / 2047.0,
-                self.buf[i].im as f32 / 2047.0,
-            );
-        }
-
-        Ok(buffers[0].len())
     }
 }
 
@@ -299,7 +312,8 @@ impl crate::TxStreamer for TxStreamer {
     fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         // TODO: sleep precisely for `time_ns`
 
-        todo!();
+        self.inner.disable_module(self.params.channel)?;
+        log::info!("Shutting down channel: {:?}", self.params.channel);
         Ok(())
     }
 
@@ -316,8 +330,6 @@ impl crate::TxStreamer for TxStreamer {
             return Ok(0);
         }
         assert_eq!(self.params.format, Format::Sc16Q11);
-        // TODO: possible to relax this in the future, need to know implications
-        assert_eq!(buffers[0].len(), TRANSFER_NUM_SAMPLES);
 
         if self.buf.len() < buffers[0].len() {
             self.buf.resize(buffers[0].len(), Complex::ZERO);
@@ -331,7 +343,7 @@ impl crate::TxStreamer for TxStreamer {
         self.inner
             .sync_tx(&self.buf, None, self.params.stream_timeout)?;
 
-        Ok(buffers[0].len())
+        Ok(self.buf.len())
     }
 
     fn write_all(
@@ -597,7 +609,7 @@ impl crate::DeviceTrait for BladeRf {
     ) -> Result<(), Error> {
         let channel = Self::to_channel(direction, channel)?;
         log::debug!(
-            "Set frequency {channel:?} {name} = {}MHz",
+            "Set frequency {channel:?} {name} = {:.2}MHz",
             frequency / 1_000_000.0
         );
         if name == "TUNER" {
@@ -605,6 +617,26 @@ impl crate::DeviceTrait for BladeRf {
         } else {
             Err(Error::ValueError)
         }
+    }
+
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        let channel = Self::to_channel(direction, channel)?;
+        Ok(self.inner.get_bandwidth(channel)? as f64)
+    }
+
+    fn set_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+        bandwidth: f64,
+    ) -> Result<(), Error> {
+        let channel = Self::to_channel(direction, channel)?;
+        log::debug!(
+            "Set bandwidth {channel:?} = {:.2}MHz",
+            bandwidth / 1_000_000.0
+        );
+        self.inner.set_bandwidth(channel, bandwidth as u32)?;
+        Ok(())
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {

@@ -301,20 +301,6 @@ impl crate::DeviceTrait for HackRfOne {
         }
     }
 
-    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        if channel == 0 {
-            // TODO: add support for other gains (RF and baseband)
-            // See: https://hackrf.readthedocs.io/en/latest/faq.html#what-gain-controls-are-provided-by-hackrf
-            match direction {
-                Direction::Tx => Ok(vec!["IF".into()]),
-                // TODO: add rest
-                Direction::Rx => Ok(vec!["IF".into()]),
-            }
-        } else {
-            Err(Error::ValueError)
-        }
-    }
-
     fn supports_agc(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
         if channel == 0 {
             Ok(false)
@@ -334,6 +320,20 @@ impl crate::DeviceTrait for HackRfOne {
     fn agc(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
         if channel == 0 {
             Err(Error::NotSupported)
+        } else {
+            Err(Error::ValueError)
+        }
+    }
+
+    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        if channel == 0 {
+            // TODO: add support for other gains (RF and baseband)
+            // See: https://hackrf.readthedocs.io/en/latest/faq.html#what-gain-controls-are-provided-by-hackrf
+            match direction {
+                Direction::Tx => Ok(vec!["IF".into()]),
+                // TODO: add rest
+                Direction::Rx => Ok(vec!["IF".into()]),
+            }
         } else {
             Err(Error::ValueError)
         }
@@ -488,6 +488,19 @@ impl crate::DeviceTrait for HackRfOne {
         } else {
             Err(Error::ValueError)
         }
+    }
+
+    fn bandwidth(&self, _direction: Direction, _channel: usize) -> Result<f64, Error> {
+        todo!();
+    }
+
+    fn set_bandwidth(
+        &self,
+        _direction: Direction,
+        _channel: usize,
+        _bandwidth: f64,
+    ) -> Result<(), Error> {
+        todo!()
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {

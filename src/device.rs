@@ -186,6 +186,19 @@ pub trait DeviceTrait: Any + Send {
         frequency: f64,
     ) -> Result<(), Error>;
 
+    //================================ BANDWIDTH ============================================
+
+    /// Gets the bandwidth of the specified element.
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error>;
+
+    /// Sets the bandwidth of the specified element.
+    fn set_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+        bandwidth: f64,
+    ) -> Result<(), Error>;
+
     //================================ SAMPLE RATE ============================================
 
     /// Get the baseband sample rate of the chain in samples per second.
@@ -574,6 +587,19 @@ impl<
             .set_component_frequency(direction, channel, name, frequency)
     }
 
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.dev.bandwidth(direction, channel)
+    }
+
+    fn set_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+        bandwidth: f64,
+    ) -> Result<(), Error> {
+        self.dev.set_bandwidth(direction, channel, bandwidth)
+    }
+
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         self.dev.sample_rate(direction, channel)
     }
@@ -753,6 +779,19 @@ impl DeviceTrait for GenericDevice {
     ) -> Result<(), Error> {
         self.as_ref()
             .set_component_frequency(direction, channel, name, frequency)
+    }
+
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.as_ref().bandwidth(direction, channel)
+    }
+
+    fn set_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+        bandwidth: f64,
+    ) -> Result<(), Error> {
+        self.as_ref().set_bandwidth(direction, channel, bandwidth)
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -1021,6 +1060,21 @@ impl<
     ) -> Result<(), Error> {
         self.dev
             .set_component_frequency(direction, channel, name, frequency)
+    }
+
+    //================================ BANDWIDTH ============================================
+
+    pub fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.dev.bandwidth(direction, channel)
+    }
+
+    pub fn set_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+        bandwidth: f64,
+    ) -> Result<(), Error> {
+        self.dev.set_bandwidth(direction, channel, bandwidth)
     }
 
     //================================ SAMPLE RATE ============================================
