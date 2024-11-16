@@ -13,28 +13,32 @@ const MTU: usize = 64 * 1024;
 
 impl HackRfOne {
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
-        let mut devs = vec![];
-        for (bus_number, address) in seify_hackrfone::HackRf::scan()? {
-            log::debug!("probing {bus_number}:{address}");
-            devs.push(
-                format!(
-                    "driver=hackrfone, bus_number={}, address={}",
-                    bus_number, address
-                )
-                .try_into()?,
-            );
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            let mut devs = vec![];
+            for (bus_number, address) in seify_hackrfone::HackRf::scan()? {
+                log::debug!("probing {bus_number}:{address}");
+                devs.push(
+                    format!(
+                        "driver=hackrfone, bus_number={}, address={}",
+                        bus_number, address
+                    )
+                    .try_into()?,
+                );
+            }
+            Ok(devs)
         }
-        Ok(devs)
+        #[cfg(all(not(target_os = "linux"), not(target_os = "android")))]
+        Ok(vec![])
     }
 
     /// Create a Hackrf One devices
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args: Args = args.try_into().or(Err(Error::ValueError))?;
 
-        // TODO(troy):
-        // re-enable once new version of nusb is published: https://github.com/kevinmehall/nusb/issues/84
-        /*
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         if let Ok(fd) = args.get::<i32>("fd") {
+            use std::os::fd::{FromRawFd, OwnedFd};
             let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 
             return Ok(Self {
@@ -45,13 +49,20 @@ impl HackRfOne {
                 }),
             });
         }
-        */
 
-        let bus_number = args.get("bus_number");
-        let address = args.get("address");
+        let bus_number = args.get::<u8>("bus_number");
+        let address = args.get::<u8>("address");
         let dev = match (bus_number, address) {
             (Ok(bus_number), Ok(address)) => {
-                seify_hackrfone::HackRf::open_bus(bus_number, address)?
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                {
+                    seify_hackrfone::HackRf::open_bus(bus_number, address)?
+                }
+                #[cfg(all(not(target_os = "linux"), not(target_os = "android")))]
+                {
+                    let _ = (bus_number, address);
+                    seify_hackrfone::HackRf::open_first()?
+                }
             }
             (Err(Error::NotFound), Err(Error::NotFound)) => {
                 log::debug!("Opening first hackrf device");
