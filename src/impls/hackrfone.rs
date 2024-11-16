@@ -13,23 +13,18 @@ const MTU: usize = 64 * 1024;
 
 impl HackRfOne {
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        {
-            let mut devs = vec![];
-            for (bus_number, address) in seify_hackrfone::HackRf::scan()? {
-                log::debug!("probing {bus_number}:{address}");
-                devs.push(
-                    format!(
-                        "driver=hackrfone, bus_number={}, address={}",
-                        bus_number, address
-                    )
-                    .try_into()?,
-                );
-            }
-            Ok(devs)
+        let mut devs = vec![];
+        for (bus_number, address) in seify_hackrfone::HackRf::scan()? {
+            log::debug!("probing {bus_number}:{address}");
+            devs.push(
+                format!(
+                    "driver=hackrfone, bus_number={}, address={}",
+                    bus_number, address
+                )
+                .try_into()?,
+            );
         }
-        #[cfg(all(not(target_os = "linux"), not(target_os = "android")))]
-        Ok(vec![])
+        Ok(devs)
     }
 
     /// Create a Hackrf One devices
@@ -54,15 +49,7 @@ impl HackRfOne {
         let address = args.get::<u8>("address");
         let dev = match (bus_number, address) {
             (Ok(bus_number), Ok(address)) => {
-                #[cfg(any(target_os = "linux", target_os = "android"))]
-                {
-                    seify_hackrfone::HackRf::open_bus(bus_number, address)?
-                }
-                #[cfg(all(not(target_os = "linux"), not(target_os = "android")))]
-                {
-                    let _ = (bus_number, address);
-                    seify_hackrfone::HackRf::open_first()?
-                }
+                seify_hackrfone::HackRf::open_bus(bus_number, address)?
             }
             (Err(Error::NotFound), Err(Error::NotFound)) => {
                 log::debug!("Opening first hackrf device");
