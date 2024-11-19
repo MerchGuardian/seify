@@ -1,5 +1,6 @@
 //! Soapy SDR
 use num_complex::Complex32;
+use std::sync::OnceLock;
 
 use crate::Args;
 use crate::DeviceTrait;
@@ -27,6 +28,16 @@ pub struct TxStreamer {
     streamer: soapysdr::TxStream<Complex32>,
 }
 
+/// Configures SoapySDR logging to route through the `log` crate.
+///
+/// This function is idempotent and will only configure logging once.
+fn init_soapy_logging() {
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| {
+        soapysdr::configure_logging();
+    });
+}
+
 impl Soapy {
     /// Get a list of detected devices, supported by Soapy
     ///
@@ -34,6 +45,7 @@ impl Soapy {
     /// this particular device. Using the `soapy_driver` argument it is possible to specify the
     /// `driver` argument for Soapy.
     pub fn probe(args: &Args) -> Result<Vec<Args>, Error> {
+        init_soapy_logging();
         let v = soapysdr::enumerate(soapysdr::Args::try_from(args.clone())?)?;
         let v: Vec<Args> = v.into_iter().map(Into::into).collect();
         Ok(v.into_iter()
@@ -54,6 +66,7 @@ impl Soapy {
     /// It is possible to specify the Soapy `driver` argument by passing the `soapy_driver` argument
     /// to this function.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
+        init_soapy_logging();
         let mut args: Args = args.try_into().or(Err(Error::ValueError))?;
         let index = args.get("index").unwrap_or(0);
 
@@ -292,6 +305,19 @@ impl DeviceTrait for Soapy {
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         let range = self.dev.get_sample_rate_range(direction.into(), channel)?;
+        Ok(range.into())
+    }
+
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        Ok(self.dev.bandwidth(direction.into(), channel)?)
+    }
+
+    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
+        Ok(self.dev.set_bandwidth(direction.into(), channel, bw)?)
+    }
+
+    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        let range = self.dev.bandwidth_range(direction.into(), channel)?;
         Ok(range.into())
     }
 }
