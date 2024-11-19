@@ -69,7 +69,13 @@ impl HackRfOne {
             }
         };
         */
-        let dev = seify_hackrfone::HackRf::open_first()?;
+        let dev = seify_hackrfone::HackRf::open_first().map_err(|e| {
+            if let seify_hackrfone::Error::NotFound = e {
+                Error::NotFound
+            } else {
+                e.into()
+            }
+        })?;
 
         Ok(Self {
             inner: Arc::new(HackRfInner {

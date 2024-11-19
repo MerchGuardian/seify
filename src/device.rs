@@ -335,6 +335,7 @@ impl Device<GenericDevice> {
         #[cfg(all(feature = "bladerf", not(target_arch = "wasm32")))]
         {
             if driver.is_none() || matches!(driver, Some(Driver::BladeRf)) {
+                log::info!("Trying to open bladerf");
                 match crate::impls::BladeRf::open(&args) {
                     Ok(d) => {
                         return Ok(Device {

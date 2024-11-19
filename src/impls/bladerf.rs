@@ -1,7 +1,8 @@
 use std::{
+    os::fd::{FromRawFd, OwnedFd},
     path::Path,
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use bladerf::{Channel, Format, GainMode, Loopback};
@@ -35,6 +36,7 @@ impl std::ops::Deref for BladeRfInner {
 
 impl BladeRf {
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
+        log::info!("Probing bladerf");
         Ok(bladerf::get_device_list()?
             .into_iter()
             .flat_map(|d| {
@@ -60,17 +62,45 @@ impl BladeRf {
 
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args: Args = args.try_into().or(Err(Error::ValueError))?;
+        log::info!("Opening bladerf: {args:?}");
 
-        if let Ok(fd) = args.get::<i32>("fd") {
-            todo!("{fd}");
+        log::info!("Setting bladerf log callback");
+        bladerf::set_log_callback_log_crate();
+
+        if let Ok(level) = args.get::<String>("bladerf_log_level") {
+            let level = match level.as_str() {
+                "verbose" => Some(bladerf::LogLevel::Verbose),
+                "debug" => Some(bladerf::LogLevel::Debug),
+                "info" => Some(bladerf::LogLevel::Info),
+                "warn" | "warning" => Some(bladerf::LogLevel::Warning),
+                "error" => Some(bladerf::LogLevel::Error),
+                "critical" => Some(bladerf::LogLevel::Critical),
+                "silent" => Some(bladerf::LogLevel::Silent),
+                _ => None,
+            };
+            if let Some(level) = level {
+                log::info!("Setting bladerf log level to {level:?}");
+                bladerf::set_log_level(level);
+            }
         }
 
-        let bus: Option<u8> = args.get("bus").ok();
-        let address: Option<u8> = args.get("address").ok();
-        let dev = match (bus, address) {
-            (Some(bus), Some(address)) => Self::open_bus(bus, address)?,
-            _ => bladerf::BladeRF::open_first()?,
+        let dev = if let Ok(fd) = args.get::<i32>("fd") {
+            // SAFETY: TODO
+            let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+            // NOTE: Currently libusb wont close the file descriptor, so how should we manage
+            // ownership?
+            bladerf::BladeRF::from_fd(fd)?
+        } else {
+            let bus: Option<u8> = args.get("bus").ok();
+            let address: Option<u8> = args.get("address").ok();
+            match (bus, address) {
+                (Some(bus), Some(address)) => Self::open_bus(bus, address)?,
+                _ => bladerf::BladeRF::open_first()?,
+            }
         };
+
+        // TODO: needed on linux for some unknown reason
+        /*
         let serial = dev.get_serial()?;
 
         // FIXME: work around `Calibration TIMEOUT (0x16, 0x80)` when re-opening already connected
@@ -96,22 +126,28 @@ impl BladeRf {
             }
             std::thread::sleep(Duration::from_millis(50));
         };
+        */
 
-        let fpga_bitstream_path = if let Ok(path) = args.get::<String>("fpga_bitstream_path") {
-            Some(path)
-        } else if let Ok(path) = std::env::var(bladerf::FPGA_BITSTREAM_VAR_NAME) {
-            if Path::new(&path).exists() {
+        let fpga_bitstream_path =
+            if let Ok(true) = args.get::<bool>("bladerf_use_default_fpga_bitstream") {
+                log::info!("Loading default fpga bitstream from seify-bladerf crate");
+                dev.load_fpga_buffer(bladerf::DEFAULT_FPGA_BITSTREAM)?;
+                None
+            } else if let Ok(path) = args.get::<String>("fpga_bitstream_path") {
                 Some(path)
+            } else if let Ok(path) = std::env::var(bladerf::FPGA_BITSTREAM_VAR_NAME) {
+                if Path::new(&path).exists() {
+                    Some(path)
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        } else {
-            None
-        };
+            };
 
         if let Some(path) = fpga_bitstream_path {
             log::info!("Loading fpga bitstream from path: {path}");
-            dev.load_fpga(path)?;
+            dev.load_fpga_path(path)?;
         }
 
         return Ok(dev.into());
