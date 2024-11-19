@@ -31,10 +31,9 @@ impl HackRfOne {
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args: Args = args.try_into().or(Err(Error::ValueError))?;
 
-        // TODO(troy):
-        // re-enable once new version of nusb is published: https://github.com/kevinmehall/nusb/issues/84
-        /*
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         if let Ok(fd) = args.get::<i32>("fd") {
+            use std::os::fd::{FromRawFd, OwnedFd};
             let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 
             return Ok(Self {
@@ -45,10 +44,9 @@ impl HackRfOne {
                 }),
             });
         }
-        */
 
-        let bus_number = args.get("bus_number");
-        let address = args.get("address");
+        let bus_number = args.get::<u8>("bus_number");
+        let address = args.get::<u8>("address");
         let dev = match (bus_number, address) {
             (Ok(bus_number), Ok(address)) => {
                 seify_hackrfone::HackRf::open_bus(bus_number, address)?
