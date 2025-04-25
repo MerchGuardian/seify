@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use num_complex::Complex32;
+use num_complex::{Complex32, ComplexFloat};
 use seify_hackrfone::Config;
 
 use crate::{Args, Direction, Error, Range, RangeItem};
@@ -38,7 +38,7 @@ impl HackRfOne {
 
             return Ok(Self {
                 inner: Arc::new(HackRfInner {
-                    dev: seify_hackrfone::HackRf::from_fd(fd)?,
+                    dev: Arc::new(seify_hackrfone::HackRf::from_fd(fd)?),
                     tx_config: Mutex::new(Config::tx_default()),
                     rx_config: Mutex::new(Config::rx_default()),
                 }),
@@ -63,7 +63,7 @@ impl HackRfOne {
 
         Ok(Self {
             inner: Arc::new(HackRfInner {
-                dev,
+                dev: Arc::new(dev),
                 tx_config: Mutex::new(Config::tx_default()),
                 rx_config: Mutex::new(Config::rx_default()),
             }),
@@ -83,7 +83,7 @@ impl HackRfOne {
 }
 
 struct HackRfInner {
-    dev: seify_hackrfone::HackRf,
+    dev: Arc<seify_hackrfone::HackRf>,
     tx_config: Mutex<seify_hackrfone::Config>,
     rx_config: Mutex<seify_hackrfone::Config>,
 }
@@ -121,7 +121,7 @@ impl crate::RxStreamer for RxStreamer {
         // TODO: sleep precisely for `time_ns`
 
         let _ = self.stream.take().unwrap();
-        self.inner.dev.stop_rx()?;
+        self.inner.dev.stop()?;
         Ok(())
     }
 
@@ -150,11 +150,17 @@ impl crate::RxStreamer for RxStreamer {
 
 pub struct TxStreamer {
     inner: Arc<HackRfInner>,
+    stream: Option<seify_hackrfone::TxStream>,
+    buf: Vec<u8>,
 }
 
 impl TxStreamer {
     fn new(inner: Arc<HackRfInner>) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            stream: None,
+            buf: Vec::new(),
+        }
     }
 }
 
@@ -165,9 +171,10 @@ impl crate::TxStreamer for TxStreamer {
 
     fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         // TODO: sleep precisely for `time_ns`
+        let config = self.inner.rx_config.lock().unwrap();
+        self.inner.dev.start_tx(&config)?;
 
-        let config = self.inner.tx_config.lock().unwrap();
-        self.inner.dev.start_rx(&config)?;
+        self.stream = Some(self.inner.dev.start_tx_stream()?);
 
         Ok(())
     }
@@ -175,7 +182,7 @@ impl crate::TxStreamer for TxStreamer {
     fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         // TODO: sleep precisely for `time_ns`
 
-        self.inner.dev.stop_tx()?;
+        self.inner.dev.stop()?;
         Ok(())
     }
 
@@ -187,9 +194,21 @@ impl crate::TxStreamer for TxStreamer {
         _timeout_us: i64,
     ) -> Result<usize, Error> {
         debug_assert_eq!(buffers.len(), 1);
-        todo!();
 
-        // self.inner.dev.write(samples)
+        if buffers[0].is_empty() {
+            return Ok(0);
+        }
+
+        let src = buffers[0];
+        self.buf.resize(src.len() * 2, 0);
+
+        for (i, sample) in src.iter().enumerate() {
+            self.buf[i * 2] = (sample.re() * 127.0) as u8;
+            self.buf[i * 2 + 1] = (sample.im() * 127.0) as u8;
+        }
+        self.stream.as_mut().unwrap().write_sync(&self.buf)?;
+
+        Ok(src.len())
     }
 
     fn write_all(
@@ -532,6 +551,23 @@ impl crate::DeviceTrait for HackRfOne {
     }
 
     fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
+        Err(Error::NotSupported)
+    }
+
+    fn has_dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
+        Ok(false)
+    }
+
+    fn set_dc_offset_mode(
+        &self,
+        _direction: Direction,
+        _channel: usize,
+        _automatic: bool,
+    ) -> Result<(), Error> {
+        Err(Error::NotSupported)
+    }
+
+    fn dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
         Err(Error::NotSupported)
     }
 }
