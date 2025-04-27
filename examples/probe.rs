@@ -1,7 +1,7 @@
 use clap::Parser;
 use seify::enumerate_with_args;
 use seify::Device;
-use seify::Direction::Rx;
+use seify::Direction::{Rx, Tx};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -30,11 +30,26 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("driver:       {:?}", dev.driver());
         println!("id:           {:?}", dev.id()?);
         println!("info:         {:?}", dev.info()?);
-        println!("sample rate:  {:?}", dev.sample_rate(Rx, 0)?);
-        println!("frequency:    {:?}", dev.frequency(Rx, 0)?);
-        println!("gain:         {:?}", dev.gain(Rx, 0)?);
-        println!("gain range:   {:?}", dev.gain_range(Rx, 0)?);
-        println!("sample rate range: {:?}", dev.get_sample_rate_range(Rx, 0)?);
+
+        println!("RX:");
+        println!("  sample rate:  {:?}", dev.sample_rate(Rx, 0)?);
+        println!("  frequency:    {:?}", dev.frequency(Rx, 0)?);
+        println!("  gain:         {:?}", dev.gain(Rx, 0)?);
+        println!("  gain range:   {:?}", dev.gain_range(Rx, 0)?);
+        println!(
+            "  sample rate range: {:?}",
+            dev.get_sample_rate_range(Rx, 0)?
+        );
+
+        println!("TX:");
+        println!("  sample rate:  {:?}", dev.sample_rate(Tx, 0)?);
+        println!("  frequency:    {:?}", dev.frequency(Tx, 0)?);
+        println!("  gain:         {:?}", dev.gain(Tx, 0)?);
+        println!("  gain range:   {:?}", dev.gain_range(Tx, 0)?);
+        println!(
+            "  sample rate range: {:?}",
+            dev.get_sample_rate_range(Tx, 0)?
+        );
     }
 
     Ok(())
