@@ -74,11 +74,11 @@ impl HackRfOne {
     where
         F: FnOnce(&mut Config) -> R,
     {
-        let config = match direction {
+        let mut config = match direction {
             Direction::Tx => self.inner.tx_config.lock(),
             Direction::Rx => self.inner.rx_config.lock(),
         };
-        f(&mut config.unwrap())
+        f(config.as_mut().unwrap())
     }
 }
 
@@ -171,7 +171,7 @@ impl crate::TxStreamer for TxStreamer {
 
     fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         // TODO: sleep precisely for `time_ns`
-        let config = self.inner.rx_config.lock().unwrap();
+        let config = self.inner.tx_config.lock().unwrap();
         self.inner.dev.start_tx(&config)?;
 
         self.stream = Some(self.inner.dev.start_tx_stream()?);
@@ -371,7 +371,7 @@ impl crate::DeviceTrait for HackRfOne {
         if r.contains(gain) && name == "IF" {
             match direction {
                 Direction::Tx => {
-                    let mut config = self.inner.rx_config.lock().unwrap();
+                    let mut config = self.inner.tx_config.lock().unwrap();
                     config.txvga_db = gain as u16;
                     Ok(())
                 }
@@ -396,7 +396,7 @@ impl crate::DeviceTrait for HackRfOne {
         if channel == 0 && name == "IF" {
             match direction {
                 Direction::Tx => {
-                    let config = self.inner.rx_config.lock().unwrap();
+                    let config = self.inner.tx_config.lock().unwrap();
                     Ok(Some(config.txvga_db as f64))
                 }
                 Direction::Rx => {
