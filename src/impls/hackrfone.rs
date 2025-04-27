@@ -370,7 +370,11 @@ impl crate::DeviceTrait for HackRfOne {
         let r = self.gain_range(direction, channel)?;
         if r.contains(gain) && name == "IF" {
             match direction {
-                Direction::Tx => todo!(),
+                Direction::Tx => {
+                    let mut config = self.inner.rx_config.lock().unwrap();
+                    config.txvga_db = gain as u16;
+                    Ok(())
+                }
                 Direction::Rx => {
                     let mut config = self.inner.rx_config.lock().unwrap();
                     config.lna_db = gain as u16;
@@ -391,7 +395,10 @@ impl crate::DeviceTrait for HackRfOne {
     ) -> Result<Option<f64>, Error> {
         if channel == 0 && name == "IF" {
             match direction {
-                Direction::Tx => todo!(),
+                Direction::Tx => {
+                    let config = self.inner.rx_config.lock().unwrap();
+                    Ok(Some(config.txvga_db as f64))
+                }
                 Direction::Rx => {
                     let config = self.inner.rx_config.lock().unwrap();
                     Ok(Some(config.lna_db as f64))
