@@ -33,8 +33,8 @@ thiserror = "2.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 once_cell = "1.20"
-seify-rtlsdr = { path = "crates/rtl-sdr-rs", version = "0.0.3", optional = true }
-seify-hackrfone = { path = "crates/seify-hackrfone", version = "0.2.1", optional = true }
+seify-rtlsdr = { git = "https://github.com/MerchGuardian/rtl-sdr-rs.git", rev = "d83355caf7ef44e63e32091e97b7990e431431c7", optional = true }
+seify-hackrfone = { git = "https://github.com/MerchGuardian/seify-hackrfone.git", rev = "6f73fa0fd540468aaaff5e83cd01e392ccae660e", optional = true }
 soapysdr = { version = "0.4", optional = true }
 ureq = { version = "2.10", features = ["json"], optional = true }
 
